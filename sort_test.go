@@ -3,11 +3,11 @@
 package main
 
 import (
-	. "launchpad.net/gocheck"
 	"math/rand"
 	"sort"
 	"testing"
-	"time"
+
+	. "launchpad.net/gocheck"
 )
 
 func Test(t *testing.T) {

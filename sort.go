@@ -2,8 +2,7 @@
 
 package main
 
-
-type tarballSlice []*Tarball
+type tarballSlice []*tarball
 
 func (tbs tarballSlice) Len() int      { return len(tbs) }
 func (tbs tarballSlice) Swap(i, j int) { tbs[i], tbs[j] = tbs[j], tbs[i] }

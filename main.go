@@ -13,7 +13,7 @@ import (
 	"bytes"
 	"fmt"
 	"go/build"
-	"gopkg.in/xmlpath.v1"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -21,9 +21,11 @@ import (
 	"path"
 	"sort"
 	"strings"
+
+	"gopkg.in/xmlpath.v1"
 )
 
-var usage = `Usage: godeb <command> [<options> ...]
+var usage = `Usage: gofetch <command> [<options> ...]
 
 Available commands:
 
@@ -72,7 +74,6 @@ func run() error {
 	default:
 		return fmt.Errorf("unknown command: %s", os.Args[1])
 	}
-	return nil
 }
 
 func listCommand() error {
@@ -87,7 +88,7 @@ func listCommand() error {
 }
 
 func removeCommand() error {
-	args := []string{"dpkg", "--purge", "go"}
+	args := []string{"rm", "-rf", "/usr/local/go"}
 	if os.Getuid() != 0 {
 		args = append([]string{"sudo"}, args...)
 	}
@@ -95,7 +96,7 @@ func removeCommand() error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("while removing go package: %v", err)
+		return fmt.Errorf("while removing go: %v", err)
 	}
 	return nil
 }
@@ -125,15 +126,6 @@ func actionCommand(version string, install bool) error {
 		}
 	}
 
-	installed, err := installedDebVersion()
-	if err == errNotInstalled {
-		// that's okay
-	} else if err != nil {
-		return err
-	} else if install && debVersion(version) == installed {
-		return fmt.Errorf("go version %s is already installed", version)
-	}
-
 	fmt.Println("processing", url)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -144,37 +136,30 @@ func actionCommand(version string, install bool) error {
 	}
 	defer resp.Body.Close()
 
-	debName := fmt.Sprintf("go_%s_%s.deb", debVersion(version), debArch())
-	deb, err := os.Create(debName + ".inprogress")
+	archiveName := fmt.Sprintf("go_%s.tar.gz", version)
+	archive, err := os.Create(archiveName)
 	if err != nil {
 		return fmt.Errorf("cannot create deb: %v", err)
 	}
-	defer deb.Close()
+	defer archive.Close()
 
-	if err := createDeb(version, resp.Body, deb); err != nil {
-		return err
-	}
-	if err := os.Rename(debName+".inprogress", debName); err != nil {
-		return err
-	}
-	fmt.Println("package", debName, "ready")
+	io.Copy(archive, resp.Body)
 
-	if install {
-		args := []string{"dpkg", "-i", debName}
-		if os.Getuid() != 0 {
-			args = append([]string{"sudo"}, args...)
-		}
-		cmd := exec.Command(args[0], args[1:]...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("while installing go package: %v", err)
-		}
+	removeCommand()
+	args := []string{"tar", "-C", "/usr/local", "-xzf", archiveName}
+	if os.Getuid() != 0 {
+		args = append([]string{"sudo"}, args...)
+	}
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("cannot unpack archive: %v", err)
 	}
 	return nil
 }
 
-type Tarball struct {
+type tarball struct {
 	URL     string
 	Version string
 }
@@ -187,9 +172,9 @@ var tarballSources = []tarballSource{
 	{"http://golang.org/dl/", "//a/@href[contains(., 'storage.googleapis.com/golang/')]"},
 }
 
-func tarballs() ([]*Tarball, error) {
+func tarballs() ([]*tarball, error) {
 	type result struct {
-		tarballs []*Tarball
+		tarballs []*tarball
 		err      error
 	}
 	results := make(chan result)
@@ -201,7 +186,7 @@ func tarballs() ([]*Tarball, error) {
 		}()
 	}
 
-	var tbs []*Tarball
+	var tbs []*tarball
 	var err error
 	for _ = range tarballSources {
 		r := <-results
@@ -218,7 +203,7 @@ func tarballs() ([]*Tarball, error) {
 	return tbs, nil
 }
 
-func tarballsFrom(source tarballSource) ([]*Tarball, error) {
+func tarballsFrom(source tarballSource) ([]*tarball, error) {
 	resp, err := http.Get(source.url)
 	if err != nil {
 		return nil, err
@@ -233,7 +218,7 @@ func tarballsFrom(source tarballSource) ([]*Tarball, error) {
 	if err != nil {
 		return nil, err
 	}
-	var tbs []*Tarball
+	var tbs []*tarball
 	iter := xmlpath.MustCompile(source.xpath).Iter(root)
 	for iter.Next() {
 		s := iter.Node().String()
@@ -253,7 +238,7 @@ func tarballsFrom(source tarballSource) ([]*Tarball, error) {
 	return tbs, nil
 }
 
-func parseURL(url string) (tb *Tarball, ok bool) {
+func parseURL(url string) (tb *tarball, ok bool) {
 	// url looks like https://.../go1.1beta2.linux-amd64.tar.gz
 	_, s := path.Split(url)
 	if len(s) < 3 || !strings.HasPrefix(s, "go") || !(s[2] >= '1' && s[2] <= '9') {
@@ -263,7 +248,7 @@ func parseURL(url string) (tb *Tarball, ok bool) {
 	if !strings.HasSuffix(s, suffix) {
 		return nil, false
 	}
-	return &Tarball{url, s[2 : len(s)-len(suffix)]}, true
+	return &tarball{url, s[2 : len(s)-len(suffix)]}, true
 }
 
 func clearScripts(data []byte) {
