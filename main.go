@@ -244,11 +244,22 @@ func parseURL(url string) (tb *tarball, ok bool) {
 	if len(s) < 3 || !strings.HasPrefix(s, "go") || !(s[2] >= '1' && s[2] <= '9') {
 		return nil, false
 	}
-	suffix := fmt.Sprintf(".linux-%s.tar.gz", build.Default.GOARCH)
+	suffix := fmt.Sprintf(".linux-%s.tar.gz", getArch())
 	if !strings.HasSuffix(s, suffix) {
 		return nil, false
 	}
 	return &tarball{url, s[2 : len(s)-len(suffix)]}, true
+}
+
+func getArch() string {
+	arch := build.Default.GOARCH
+
+	if arch == "arm" {
+		return "armv6l"
+	}
+
+	return arch
+
 }
 
 func clearScripts(data []byte) {
