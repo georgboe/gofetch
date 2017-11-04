@@ -169,7 +169,7 @@ type tarballSource struct {
 }
 
 var tarballSources = []tarballSource{
-	{"http://golang.org/dl/", "//a/@href[contains(., 'storage.googleapis.com/golang/')]"},
+	{"https://golang.org/dl/", "//a/@href[contains(., 'redirector.gvt1.com/edgedl/go/')]"},
 }
 
 func tarballs() ([]*tarball, error) {
